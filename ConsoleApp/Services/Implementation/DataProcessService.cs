@@ -10,8 +10,9 @@ namespace ConsoleApp.Services.Implementation;
 public class DataProcessService(
     ILogger<DataProcessService> logger,
     [FromKeyedServices("Json")] IDataProvider jsonProvider,
-    [FromKeyedServices("Csv")] IDataProvider csvProvider,
-    [FromKeyedServices("Api")] IDataProvider apiProvider) : IDataProcessService
+    [FromKeyedServices("Csv")] ICollectionDataProvider csvProvider,
+    [FromKeyedServices("Api")] IDataProvider apiProvider,
+    [FromKeyedServices("Excel")] ICollectionDataProvider excelProvider) : IDataProcessService
 {
     public async Task<T> GetDataAsync<T>(DataProviderType dataProviderType, string source)
     {
@@ -19,7 +20,6 @@ public class DataProcessService(
         var dataProvider = dataProviderType switch
         {
             DataProviderType.Json => jsonProvider,
-            DataProviderType.Csv => csvProvider,
             DataProviderType.Api => apiProvider,
             _ => throw new ArgumentOutOfRangeException(nameof(dataProviderType), $"Unsupported data provider type: {dataProviderType}")
         };
@@ -27,4 +27,16 @@ public class DataProcessService(
         return await dataProvider.GetDataAsync<T>(source);
     }
 
+    public async Task<IEnumerable<T>> GetCollectionDataAsync<T>(DataProviderType dataProviderType, string source) where T : class, new()
+    {
+        logger.LogInformation("Getting posts for {dataProviderType} - ", dataProviderType);
+        var dataProvider = dataProviderType switch
+        {
+            DataProviderType.Csv => csvProvider,
+            DataProviderType.Excel => excelProvider,
+            _ => throw new ArgumentOutOfRangeException(nameof(dataProviderType), $"Unsupported data provider type: {dataProviderType}")
+        };
+
+        return await dataProvider.GetCollectionDataAsync<T>(source);
+    }
 }

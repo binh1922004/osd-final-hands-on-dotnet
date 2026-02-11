@@ -4,5 +4,6 @@ public enum DataProviderType
 {
     Api,
     Json,
-    Csv
+    Csv,
+    Excel
 }

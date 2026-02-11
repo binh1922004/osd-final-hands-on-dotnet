@@ -11,6 +11,7 @@ namespace ConsoleApp.Services.Implementation;
 public class WorkerService(
     IOptions<CsvStorageSetting> csvSetting,
     IOptions<JsonStorageSetting> jsonSetting,
+    IOptions<ExcelStorageSetting> excelSetting,
     IOptions<ApiSetting> apiSetting,
     ILogger<WorkerService> logger,
     IUserService userService,
@@ -19,6 +20,7 @@ public class WorkerService(
 {
     private readonly CsvStorageSetting _csvSetting = csvSetting.Value;
     private readonly JsonStorageSetting _jsonSetting = jsonSetting.Value;
+    private readonly ExcelStorageSetting _excelSetting = excelSetting.Value;
     private readonly ApiSetting _apiSetting = apiSetting.Value;
 
     public async Task DoJob()
@@ -42,6 +44,13 @@ public class WorkerService(
                 }
             },
             {
+                DataProviderType.Excel, new Dictionary<int, string>
+                {
+                    {1, _excelSetting.UserFilePath},
+                    {2, _excelSetting.PostFilePath}
+                }
+            },
+            {
                 DataProviderType.Api, new Dictionary<int, string>
                 {
                     {1, _apiSetting.UserApiUrl},
@@ -51,7 +60,7 @@ public class WorkerService(
         };
         while (true)
         {
-            Console.WriteLine("Select Data Provider Type (Json, Csv, Api) or 'Exit' to quit:");
+            Console.WriteLine("Select Data Provider Type (Json, Csv, Api, Excel) or 'Exit' to quit:");
             var input = Console.ReadLine();
             if (string.Equals(input, "Exit", StringComparison.OrdinalIgnoreCase))
             {
@@ -60,7 +69,7 @@ public class WorkerService(
 
             if (!Enum.TryParse<DataProviderType>(input, true, out var dataProviderType))
             {
-                Console.WriteLine("Invalid input. Please enter 'Json', 'Csv', 'Api', or 'Exit'.");
+                Console.WriteLine("Invalid input. Please enter 'Json', 'Csv', 'Api', 'Excel' or 'Exit'.");
                 continue;
             }
             Console.WriteLine("What data collection do you want to process: 1. User - 2. Post");
@@ -76,15 +85,32 @@ public class WorkerService(
             try
             {
                 logger.LogInformation("Starting getting data");
-                if (collectionChoice == 1)
+                
+                if (dataProviderType is DataProviderType.Json or DataProviderType.Api)
                 {
-                    var users = await dataProcessService.GetDataAsync<List<User>>(dataProviderType, source);
-                    userService.InteractWithUsers(users);
+                    if (collectionChoice == 1)
+                    {
+                        var users = await dataProcessService.GetDataAsync<List<User>>(dataProviderType, source);
+                        userService.InteractWithUsers(users);
+                    }
+                    else
+                    {
+                        var posts = await dataProcessService.GetDataAsync<List<Post>>(dataProviderType, source);
+                        postService.InteractWithPosts(posts);
+                    }
                 }
-                else
+                else  // Csv case
                 {
-                    var posts = await dataProcessService.GetDataAsync<List<Post>>(dataProviderType, source);
-                    postService.InteractWithPosts(posts);
+                    if (collectionChoice == 1)
+                    {
+                        var users = await dataProcessService.GetCollectionDataAsync<User>(dataProviderType, source);
+                        userService.InteractWithUsers(users.ToList());
+                    }
+                    else
+                    {
+                        var posts = await dataProcessService.GetCollectionDataAsync<Post>(dataProviderType, source);
+                        postService.InteractWithPosts(posts.ToList());
+                    }
                 }
             }
             catch (Exception exception)

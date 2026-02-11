@@ -7,4 +7,6 @@ public interface IDataProcessService
 {
     
     Task<T> GetDataAsync<T>(DataProviderType dataProviderType, string source);
+    
+    Task<IEnumerable<T>> GetCollectionDataAsync<T>(DataProviderType dataProviderType, string source) where T : class, new();
 }
