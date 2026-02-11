@@ -1,21 +1,14 @@
-using System.Collections;
 using System.Globalization;
-using ConsoleApp.DataProvider.CsvMaps;
 using ConsoleApp.DataProvider.Interface;
-using ConsoleApp.Models;
 using CsvHelper;
 using CsvHelper.Configuration;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace ConsoleApp.DataProvider.Implementation;
 
-public class CsvDataProvider(
-    ILogger<CsvDataProvider> logger,
-    IConfiguration configuration) : IDataProvider
+public class CsvDataProvider(ILogger<CsvDataProvider> logger) : ICollectionDataProvider
 {
-
-    public async Task<T> GetDataAsync<T>(string source)
+    public async Task<IEnumerable<T>> GetCollectionDataAsync<T>(string source) where T : class, new()
     {
         try
         {
@@ -27,51 +20,31 @@ public class CsvDataProvider(
                 throw new FileNotFoundException("CSV file not found", source);
             }
 
-            // Get the element type if T is a List
-            var type = typeof(T);
-            Type elementType;
-            
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
-            {
-                // T is List<SomeType>, get SomeType
-                elementType = type.GetGenericArguments()[0];
-            }
-            else
-            {
-                // Don't support
-                logger.LogError("Must use List<> for read from CSV");
-                throw  new NotSupportedException("Must use List<> for read from CSV");
-            }
-
             using var reader = new StreamReader(source);
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
-                PrepareHeaderForMatch = args =>
-                {
-                    // Upper first char of header from CSV
-                    var newHeader = char.ToUpper(args.Header[0]) + args.Header[1..];
-                    return newHeader;
-                }
+                PrepareHeaderForMatch = args => args.Header.ToLower(),
+                HeaderValidated = null, // Don't validate headers
+                MissingFieldFound = null // Ignore missing fields
             };
 
-
-            var result = (IList) Activator.CreateInstance<T>()!;
-            
+            var result = new List<T>();
             using var csv = new CsvReader(reader, config);
             
-            // Register custom ClassMap for User type to handle nested properties
-            if (elementType == typeof(User))
+            await foreach (var row in csv.GetRecordsAsync<T>())
             {
-                csv.Context.RegisterClassMap<UserCsvMap>();
+                // If the model implements IParseable, parse raw fields
+                if (row is IParseable parseable)
+                {
+                    parseable.ParseRawFields();
+                }
+                result.Add(row);
             }
             
-            await foreach (var record in csv.GetRecordsAsync(elementType))
-            {
-                result.Add(record);    
-            }
+            logger.LogInformation("Finished reading product data from CSV file with {Count} records: {FileName}", result.Count, source);
 
-            return (T)result;
+            return result;
         }
         catch (IOException ex)
         {
