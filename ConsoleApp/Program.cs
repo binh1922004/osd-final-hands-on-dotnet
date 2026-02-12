@@ -1,73 +1,59 @@
 ﻿using ConsoleApp.DataProvider.Implementation;
 using ConsoleApp.DataProvider.Interface;
-using ConsoleApp.Logger;
-using ConsoleApp.Models;
 using ConsoleApp.Services.Implementation;
 using ConsoleApp.Services.Interface;
 using ConsoleApp.Setting;
 using ConsoleApp.Utilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-// using ConsoleApp.Data.Implementation;
+using OfficeOpenXml;
+using Serilog;
+
 
 // Build configuration
+// Use AppContext.BaseDirectory to get the directory where the application is running
+// This works correctly even when running from bin/Debug/net10.0/
 var configuration = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
-    .AddJsonFile("appsettings.json", false, true)
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile(Constant.AppSettingsFileName, false, true)
     .Build();
-var logFilePath = configuration.GetSection("LogFilePath").Value ?? "app.log";
-var logFileWriter = new StreamWriter(logFilePath, append: true)
-{
-    AutoFlush = true
-};
+
+
+var logFilePath = configuration.GetSection(Constant.LogFilePathKey).Value ?? Constant.DefaultLogFileName;
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .WriteTo.File(logFilePath, rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
 var services = new ServiceCollection();
 
 // Add configuration to DI
 services.AddSingleton<IConfiguration>(configuration);
 
-// Configure Options Pattern - Bind settings from appsettings.json
-services.Configure<CsvStorageSetting>(configuration.GetSection("CsvStorageSetting"));
-services.Configure<JsonStorageSetting>(configuration.GetSection("JsonStorageSetting"));
-services.Configure<ExcelStorageSetting>(configuration.GetSection("ExcelStorageSetting"));
-services.Configure<ApiSetting>(configuration.GetSection("ApiSetting"));
-services.AddScoped<IUserService, UserService>();
-services.AddScoped<IPostService, PostService>();
-services.AddLogging(loggingBuilder =>
-{
-    loggingBuilder.AddConsole();
-    loggingBuilder.SetMinimumLevel(LogLevel.Information);
-    loggingBuilder.AddProvider(new CustomFileLoggerProvider(logFileWriter));
-});
-services.AddKeyedScoped<IDataProvider, JsonDataProvider>("Json");
-services.AddKeyedScoped<ICollectionDataProvider, CsvDataProvider>("Csv");
-services.AddKeyedScoped<ICollectionDataProvider, ExcelDataProvider>("Excel");
-services.AddKeyedScoped<IDataProvider, ApiDataProvider>("Api");
-services.AddTransient<HttpClient>();
+// Configure Options Pattern - Bind settings from appSettings.json
+services.Configure<CsvStorageSetting>(configuration.GetSection(Constant.CsvStorageSettingKey));
+services.Configure<JsonStorageSetting>(configuration.GetSection(Constant.JsonStorageSettingKey));
+services.Configure<ExcelStorageSetting>(configuration.GetSection(Constant.ExcelStorageSettingKey));
+services.Configure<ApiSetting>(configuration.GetSection(Constant.ApiSettingKey));
+services.AddKeyedScoped<ICollectionDataProvider, JsonDataProvider>(Constant.JsonProviderKey);
+services.AddKeyedScoped<ICollectionDataProvider, CsvDataProvider>(Constant.CsvProviderKey);
+services.AddKeyedScoped<ICollectionDataProvider, ExcelDataProvider>(Constant.ExcelProviderKey);
+services.AddKeyedScoped<ICollectionDataProvider, ApiDataProvider>(Constant.ApiProviderKey);
 services.AddScoped<IDataProcessService, DataProcessService>();
 services.AddScoped<WorkerService>();
+services.AddHttpClient();
+
+ExcelPackage.License.SetNonCommercialPersonal("ball");
 var serviceProvider = services.BuildServiceProvider();
-var logger = serviceProvider.GetRequiredService<ILogger<Program>>(); 
 var workerService = serviceProvider.GetRequiredService<WorkerService>();
 
-while (true)
+try
 {
-    try
-    {
-        logger.LogInformation("Starting console application...");
-        await workerService.DoJob();
-        logger.LogInformation("Console application finished successfully.");
-    }
-    catch (Exception ex) 
-    {
-        logger.LogError(ex, "An error occurred during processing.");
-
-    }
-    Console.WriteLine("Do you want to try again? (Y/N)");
-    var retryInput = Console.ReadLine();
-    if (!string.Equals(retryInput, "Y", StringComparison.OrdinalIgnoreCase))
-    {
-        break;
-    }
+    Log.Information("Starting console application...");
+    await workerService.DoJob();
+    Log.Information("Console application finished successfully.");
+}
+catch (Exception ex)
+{
+    Log.Error(ex, "An error occurred during processing.");
 }

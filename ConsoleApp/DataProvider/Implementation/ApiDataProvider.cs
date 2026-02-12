@@ -1,58 +1,89 @@
 using System.Text.Json;
 using ConsoleApp.DataProvider.Interface;
 using ConsoleApp.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using ConsoleApp.Utilities;
+using Serilog;
 
 namespace ConsoleApp.DataProvider.Implementation;
 
 public class ApiDataProvider(
-    ILogger<ApiDataProvider> logger,
-    IConfiguration configuration,
-    HttpClient httpClient) : IDataProvider
+    IHttpClientFactory httpClientFactory ) : ICollectionDataProvider
 {
-    
-
-    public async Task<T> GetDataAsync<T>(string source)
+    private readonly HttpClient _httpClient = httpClientFactory.CreateClient();
+    public async Task<IEnumerable<T>> GetCollectionDataAsync<T>(string apiUrl,CancellationToken cancellationToken) where T : class, new()
     {
         try
         {
-            logger.LogInformation("Start fetching product data from API: {ApiUrl}", source);
+            Log.Information("Start reading data from {Provider} source: {Source}", Constant.ApiProviderName, apiUrl);
 
-            var response = await httpClient.GetAsync(source);
+            var response = await _httpClient.GetAsync(apiUrl, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogWarning("API request failed with status code: {StatusCode}", response.StatusCode);
+                Log.Warning("{Provider} request failed with status code: {StatusCode}, source: {Source}", Constant.ApiProviderName, response.StatusCode, apiUrl);
                 throw new HttpRequestException($"API request failed with status code: {response.StatusCode}");
             }
 
-            var jsonContent = await response.Content.ReadAsStringAsync();
-            logger.LogInformation("Successfully received response from API: {ApiUrl}", source);
+            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            Log.Information("Successfully received response from {Provider} source: {Source}", Constant.ApiProviderName, apiUrl);
 
-            var jsonData = JsonSerializer.Deserialize<T>(jsonContent);
+            using var jsonDocument = JsonDocument.Parse(jsonContent);
+            var jsonArray = jsonDocument.RootElement;
+            if (jsonArray.ValueKind != JsonValueKind.Array)
+            {
+                Log.Warning("{Provider} response does not contain an array: {Source}", Constant.ApiProviderName, apiUrl);
+                throw new JsonException("API response does not contain an array");
+            }
             
-            logger.LogInformation("Successfully parse json from API");
-            return jsonData;
+            var validItems = new List<T>();
+            var skippedCount = 0;
+            
+            for (var i = 0; i < jsonArray.GetArrayLength(); i++)
+            {
+                try
+                {
+                    var element = jsonArray[i];
+                    var item = JsonSerializer.Deserialize<T>(element.GetRawText());
+                    if (item != null)
+                    {
+                        validItems.Add(item);
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    var error = new ErrorRow
+                    {
+                        Type = DataProviderType.Api,
+                        RowNumber = i + 1,
+                        ErrorMessage = ex.Message
+                    };
+                    Log.Error(error.ToString());
+                    skippedCount++;
+                }
+            }
+
+            Log.Information("Successfully loaded {ValidCount} records from {Provider} source, skipped {SkippedCount} invalid records: {Source}", 
+                validItems.Count, Constant.ApiProviderName, skippedCount, apiUrl);
+            return validItems;
         }
         catch (JsonException ex)
         {
-            logger.LogError(ex, "Failed to deserialize API response from: {ApiUrl}", source);
+            Log.Error(ex, "Failed to deserialize {Provider} response from source: {Source}", Constant.ApiProviderName, apiUrl);
             throw;
         }
         catch (HttpRequestException ex)
         {
-            logger.LogError(ex, "HTTP request failed for API: {ApiUrl}", source);
+            Log.Error(ex, "HTTP request failed for {Provider} source: {Source}", Constant.ApiProviderName, apiUrl);
             throw;
         }
         catch (TaskCanceledException ex)
         {
-            logger.LogError(ex, "API request timeout for: {ApiUrl}", source);
+            Log.Error(ex, "{Provider} request timeout for source: {Source}", Constant.ApiProviderName, apiUrl);
             throw;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error while fetching product data from API: {ApiUrl}", source);
+            Log.Error(ex, "Unexpected error while reading data from {Provider} source: {Source}", Constant.ApiProviderName, apiUrl);
             throw;
         }
     }

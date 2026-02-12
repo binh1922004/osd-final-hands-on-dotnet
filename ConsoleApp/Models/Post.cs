@@ -10,14 +10,17 @@ public class Post
     [ExcelColumnName("title")]
     [Name("title")]
     public string Title { get; set; }
+
     [JsonPropertyName("body")]
     [ExcelColumnName("body")]
     [Name("body")]
     public string Body { get; set; }
+
     [JsonPropertyName("id")]
     [ExcelColumnName("id")]
     [Name("id")]
     public int Id { get; set; }
+
     [JsonPropertyName("userId")]
     [ExcelColumnName("userId")]
     [Name("userid")]

@@ -1,51 +1,92 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using ConsoleApp.DataProvider.Interface;
 using ConsoleApp.Models;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using ConsoleApp.Utilities;
+using Serilog;
 
 namespace ConsoleApp.DataProvider.Implementation;
 
-public class JsonDataProvider(
-    ILogger<JsonDataProvider> logger,
-    IConfiguration configuration) : IDataProvider
+public class JsonDataProvider : ICollectionDataProvider
 {
-    
-
-    public async Task<T> GetDataAsync<T>(string source)
+    public async Task<IEnumerable<T>> GetCollectionDataAsync<T>(string filePath, CancellationToken cancellationToken)
+        where T : class, new()
     {
         try
         {
-            logger.LogInformation("Start reading product data from JSON file: {FileName}", source);
-
-            if (!File.Exists(source))
+            Log.Information("Start reading data from {Provider} source: {Source}", Constant.JsonProviderName, filePath);
+            if (!File.Exists(filePath))
             {
-                logger.LogWarning("JSON file not found: {FileName}", source);
-                throw new FileNotFoundException("JSON file not found", source);
+                Log.Warning("{Provider} file not found: {Source}", Constant.JsonProviderName, filePath);
+                throw new FileNotFoundException("JSON file not found", filePath);
             }
 
-            var jsonContent = await File.ReadAllTextAsync(source);
-            logger.LogInformation("Finished reading product data from JSON file: {FileName}", source);
-            var jsonData = JsonSerializer.Deserialize<T>(jsonContent);
+            var jsonContent = await File.ReadAllTextAsync(filePath, cancellationToken);
+            Log.Information("Successfully read content from {Provider} source: {Source}", Constant.JsonProviderName, filePath);
+            using var jsonDocument = JsonDocument.Parse(jsonContent);
+            var jsonArray = jsonDocument.RootElement;
+            if (jsonArray.ValueKind != JsonValueKind.Array)
+            {
+                Log.Warning("{Provider} source does not contain an array: {Source}", Constant.JsonProviderName, filePath);
+                throw new JsonException("JSON source does not contain an array");
+            }
+            
+            var validItems = new List<T>();
+            var skippedCount = 0;
+            
+            for (var i = 0; i < jsonArray.GetArrayLength(); i++)
+            {
+                try
+                {
+                    var element = jsonArray[i];
+                    var item = JsonSerializer.Deserialize<T>(element.GetRawText());
+                    if (item != null)
+                    {
+                        validItems.Add(item);
+                    }
+                    else
+                    {
+                        var error = new ErrorRow
+                        {
+                            Type = DataProviderType.Json,
+                            RowNumber = i + 1,
+                            ErrorMessage = "Deserialized item is null"
+                        };
+                        Log.Error(error.ToString());
+                        skippedCount++;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    var error = new ErrorRow
+                    {
+                        Type = DataProviderType.Json,
+                        RowNumber = i + 1,
+                        ErrorMessage = ex.Message
+                    };
+                    Log.Error(error.ToString());
+                    skippedCount++;
+                }
+            }
 
-            logger.LogInformation("Successfully loaded posts from JSON file");
-            return jsonData;
+            Log.Information("Successfully loaded {ValidCount} records from {Provider} source, skipped {SkippedCount} invalid records: {Source}", 
+                validItems.Count, Constant.JsonProviderName, skippedCount, filePath);
+            return validItems;
         }
         catch (JsonException ex)
         {
-            logger.LogError(ex, "Failed to deserialize JSON file: {FileName}", source);
+            Log.Error(ex, "Failed to deserialize {Provider} source: {Source}", Constant.JsonProviderName, filePath);
             throw;
         }
         catch (IOException ex)
         {
-            logger.LogError(ex, "Failed to read JSON file: {FileName}", source);
+            Log.Error(ex, "Failed to read {Provider} source: {Source}", Constant.JsonProviderName, filePath);
             throw;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error while reading product data from JSON file: {FileName}", source);
+            Log.Error(ex, "Unexpected error while reading data from {Provider} source: {Source}", Constant.JsonProviderName, filePath);
             throw;
         }
     }
+    
 }

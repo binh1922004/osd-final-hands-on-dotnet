@@ -2,9 +2,8 @@ using ConsoleApp.Models;
 using ConsoleApp.Services.Interface;
 using ConsoleApp.Setting;
 using ConsoleApp.Utilities;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Serilog;
 
 namespace ConsoleApp.Services.Implementation;
 
@@ -13,111 +12,37 @@ public class WorkerService(
     IOptions<JsonStorageSetting> jsonSetting,
     IOptions<ExcelStorageSetting> excelSetting,
     IOptions<ApiSetting> apiSetting,
-    ILogger<WorkerService> logger,
-    IUserService userService,
-    IPostService postService,
     IDataProcessService dataProcessService)
 {
-    private readonly CsvStorageSetting _csvSetting = csvSetting.Value;
-    private readonly JsonStorageSetting _jsonSetting = jsonSetting.Value;
-    private readonly ExcelStorageSetting _excelSetting = excelSetting.Value;
     private readonly ApiSetting _apiSetting = apiSetting.Value;
+    private readonly CsvStorageSetting _csvSetting = csvSetting.Value;
+    private readonly ExcelStorageSetting _excelSetting = excelSetting.Value;
+    private readonly JsonStorageSetting _jsonSetting = jsonSetting.Value;
 
-    public async Task DoJob()
+    public async Task DoJob(CancellationToken cancellationToken = default)
     {
-        // Define data collection sources based on provider type and collection choice
-        // 1 for User data and 2 for Post data
-        Dictionary<DataProviderType, Dictionary<int, string>> dataCollectionSources = new()
-        {
-            {
-                DataProviderType.Json, new Dictionary<int, string>
-                {
-                    {1, _jsonSetting.UserFilePath},
-                    {2, _jsonSetting.PostFilePath}
-                }
-            },
-            {
-                DataProviderType.Csv, new Dictionary<int, string>
-                {
-                    {1, _csvSetting.UserFilePath},
-                    {2, _csvSetting.PostFilePath}
-                }
-            },
-            {
-                DataProviderType.Excel, new Dictionary<int, string>
-                {
-                    {1, _excelSetting.UserFilePath},
-                    {2, _excelSetting.PostFilePath}
-                }
-            },
-            {
-                DataProviderType.Api, new Dictionary<int, string>
-                {
-                    {1, _apiSetting.UserApiUrl},
-                    {2, _apiSetting.PostApiUrl}
-                }
-            }
-        };
-        while (true)
-        {
-            Console.WriteLine("Select Data Provider Type (Json, Csv, Api, Excel) or 'Exit' to quit:");
-            var input = Console.ReadLine();
-            if (string.Equals(input, "Exit", StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-
-            if (!Enum.TryParse<DataProviderType>(input, true, out var dataProviderType))
-            {
-                Console.WriteLine("Invalid input. Please enter 'Json', 'Csv', 'Api', 'Excel' or 'Exit'.");
-                continue;
-            }
-            Console.WriteLine("What data collection do you want to process: 1. User - 2. Post");
-            var collectionInput = Console.ReadLine();
+        var csvTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Csv, _csvSetting.UserFilePath, cancellationToken);
+        var jsonTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Json, _jsonSetting.UserFilePath, cancellationToken);
+        var excelTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Excel, _excelSetting.UserFilePath, cancellationToken);
+        var apiTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Api, _apiSetting.UserApiUrl, cancellationToken);
         
-            if (!int.TryParse(collectionInput, out var collectionChoice) || (collectionChoice != 1 && collectionChoice != 2))
-            {
-                Console.WriteLine("Invalid input. Please enter '1' for User or '2' for Post.");
-                continue;
-            }
-            
-            var source = dataCollectionSources[dataProviderType][collectionChoice];
-            try
-            {
-                logger.LogInformation("Starting getting data");
-                
-                if (dataProviderType is DataProviderType.Json or DataProviderType.Api)
-                {
-                    if (collectionChoice == 1)
-                    {
-                        var users = await dataProcessService.GetDataAsync<List<User>>(dataProviderType, source);
-                        userService.InteractWithUsers(users);
-                    }
-                    else
-                    {
-                        var posts = await dataProcessService.GetDataAsync<List<Post>>(dataProviderType, source);
-                        postService.InteractWithPosts(posts);
-                    }
-                }
-                else  // Csv case
-                {
-                    if (collectionChoice == 1)
-                    {
-                        var users = await dataProcessService.GetCollectionDataAsync<User>(dataProviderType, source);
-                        userService.InteractWithUsers(users.ToList());
-                    }
-                    else
-                    {
-                        var posts = await dataProcessService.GetCollectionDataAsync<Post>(dataProviderType, source);
-                        postService.InteractWithPosts(posts.ToList());
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                logger.LogError(exception, "An error occurred during data processing.");
-                throw;
-            }
+        // Wait for all tasks to complete and get results directly
+        var results = await Task.WhenAll(csvTask, jsonTask, excelTask, apiTask);
+        
+        // Combine all results into a single list
+        var combinedList = new List<User>();
+        foreach (var result in results)
+        {
+            combinedList.AddRange(result);
         }
+        var summaryList = combinedList.Select(u => new 
+        {
+            u.Id,
+            u.Name,
+            u.Username
+        }).ToList();
+        
+        Log.Information("Combined results from all sources - Total: {TotalCount} records", combinedList.Count);
+        await dataProcessService.WriteDataToCsvFile(summaryList, "/Users/mac/Orient/Project/ConsoleApp/ConsoleApp/Storage/ResultData.csv", cancellationToken);
     }
 }
