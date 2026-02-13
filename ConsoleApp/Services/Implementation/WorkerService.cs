@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ConsoleApp.Models;
 using ConsoleApp.Services.Interface;
 using ConsoleApp.Setting;
@@ -21,6 +22,7 @@ public class WorkerService(
 
     public async Task DoJob(CancellationToken cancellationToken = default)
     {
+        var stopwatch = Stopwatch.StartNew();
         var csvTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Csv, _csvSetting.UserFilePath, cancellationToken);
         var jsonTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Json, _jsonSetting.UserFilePath, cancellationToken);
         var excelTask = dataProcessService.GetCollectionDataAsync<User>(DataProviderType.Excel, _excelSetting.UserFilePath, cancellationToken);
@@ -41,8 +43,9 @@ public class WorkerService(
             u.Name,
             u.Username
         }).ToList();
+        stopwatch.Stop();
         
-        Log.Information("Combined results from all sources - Total: {TotalCount} records", combinedList.Count);
+        Log.Information("Combined results from all sources in {Time}ms - Total: {TotalCount} records", stopwatch.ElapsedMilliseconds, combinedList.Count);
         await dataProcessService.WriteDataToCsvFile(summaryList, "/Users/mac/Orient/Project/ConsoleApp/ConsoleApp/Storage/ResultData.csv", cancellationToken);
     }
 }

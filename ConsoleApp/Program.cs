@@ -50,7 +50,14 @@ var workerService = serviceProvider.GetRequiredService<WorkerService>();
 try
 {
     Log.Information("Starting console application...");
+    
+    // Get timeout from configuration (default to 200ms if not specified)
+    // var timeoutMs = configuration.GetValue<int>(Constant.RequestTimeoutMsKey);
+    // if (timeoutMs <= 0) timeoutMs = 200;
+    //
+    // using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
     await workerService.DoJob();
+    
     Log.Information("Console application finished successfully.");
 }
 catch (Exception ex)

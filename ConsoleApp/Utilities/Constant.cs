@@ -8,6 +8,7 @@ public class Constant
     public const string JsonStorageSettingKey = "JsonStorageSetting";
     public const string ExcelStorageSettingKey = "ExcelStorageSetting";
     public const string ApiSettingKey = "ApiSetting";
+    public const string RequestTimeoutMsKey = "RequestTimeoutMs";
     
     // Configuration Files
     public const string AppSettingsFileName = "appSettings.json";

@@ -10,10 +10,10 @@ using Serilog;
 namespace ConsoleApp.Services.Implementation;
 
 public class DataProcessService(
-    [FromKeyedServices("Json")] ICollectionDataProvider jsonProvider,
-    [FromKeyedServices("Csv")] ICollectionDataProvider csvProvider,
-    [FromKeyedServices("Api")] ICollectionDataProvider apiProvider,
-    [FromKeyedServices("Excel")] ICollectionDataProvider excelProvider) : IDataProcessService
+    [FromKeyedServices(Constant.JsonProviderKey)] ICollectionDataProvider jsonProvider,
+    [FromKeyedServices(Constant.CsvProviderKey)] ICollectionDataProvider csvProvider,
+    [FromKeyedServices(Constant.ApiProviderKey)] ICollectionDataProvider apiProvider,
+    [FromKeyedServices(Constant.ExcelProviderKey)] ICollectionDataProvider excelProvider) : IDataProcessService
 {
     public async Task<IEnumerable<T>> GetCollectionDataAsync<T>(DataProviderType dataProviderType, string source, CancellationToken cancellationToken)
         where T : class, new()
